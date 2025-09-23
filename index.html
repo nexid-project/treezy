@@ -375,26 +375,31 @@
             companyNameEl.textContent = currentUserProfile?.empresas?.nombre_empresa || '';
         }
         
-        async function setupUserSession(userId, isNewLogin) {
-            // Solo muestra el loader si es un login nuevo, para evitar parpadeos al recargar.
-            if(isNewLogin) showLoading('Verificando usuario...');
-            
-            const profile = await fetchUserProfile(userId);
+        async function handleSession(session, event) {
+            if (!session || !session.user) {
+                showLoginScreen();
+                return;
+            }
 
+            // Si el usuario ya está cargado, no hacemos nada para evitar recargas innecesarias
+            if (currentUserProfile && currentUserProfile.id === session.user.id) {
+                return;
+            }
+
+            showLoading('Verificando usuario...');
+            const profile = await fetchUserProfile(session.user.id);
+            
             if (profile) {
-                const wasAlreadyLoggedIn = !!currentUserProfile;
                 currentUserProfile = profile;
                 
-                // Carga los datos solo si es la primera vez o si no se han cargado antes.
-                if(!wasAlreadyLoggedIn) {
-                    showLoading('Cargando configuración...');
-                    let dataLoaded = true;
-                    if (profile.role !== 'Super Administrador') {
-                        dataLoaded = await loadInitialData(profile.empresa_id);
-                    }
-                     if (!dataLoaded && profile.role === 'Administrador') {
-                        showNotification('Advertencia: No se pudieron cargar datos iniciales (árbol/productos).', true);
-                    }
+                showLoading('Cargando configuración...');
+                let dataLoaded = true;
+                if (profile.role !== 'Super Administrador') {
+                    dataLoaded = await loadInitialData(profile.empresa_id);
+                }
+
+                if (!dataLoaded && (profile.role === 'Administrador' || profile.role === 'Super Administrador')) {
+                    showNotification('Advertencia: No se pudieron cargar datos iniciales (árbol/productos).', true);
                 }
 
                 hideLoading();
@@ -402,9 +407,12 @@
                 appContainer.classList.remove('hidden');
                 updateUIVisibility();
 
-                // Redirige a la página de inicio solo si es un login nuevo.
-                if (isNewLogin) {
-                     if (profile.role === 'Super Administrador' || profile.role === 'Administrador') {
+                // Restaurar la última pestaña vista o ir a la de por defecto
+                const lastTab = localStorage.getItem('lastActiveTab');
+                if (lastTab && event === 'INITIAL_SESSION') {
+                    showContent(lastTab);
+                } else {
+                    if (profile.role === 'Super Administrador' || profile.role === 'Administrador') {
                         showContent('users-content');
                         loadUsers();
                     } else {
@@ -412,31 +420,9 @@
                     }
                 }
             } else {
-                showLoginScreen();
+                // Si el perfil no se encuentra, desloguear para evitar bucles
+                await _supabase.auth.signOut();
             }
-        }
-        
-        async function initializeApp() {
-            const { data: { session } } = await _supabase.auth.getSession();
-            if (session && session.user) {
-                await setupUserSession(session.user.id, false); // false indica que no es un login nuevo
-            } else {
-                showLoginScreen();
-            }
-
-            _supabase.auth.onAuthStateChange((event, session) => {
-                // El evento 'SIGNED_IN' solo se considera un login nuevo.
-                if (event === 'SIGNED_IN' && session && session.user) {
-                    setupUserSession(session.user.id, true); // true indica que es un login nuevo
-                } else if (event === 'SIGNED_OUT') {
-                    showLoginScreen();
-                    currentUserProfile = null;
-                    decisionTree = {};
-                    allCases = [];
-                    allProducts = [];
-                    updateUIVisibility();
-                }
-            });
         }
         
         // --- El resto de tus funciones (loginForm, showContent, etc.) permanecen aquí sin cambios ---
@@ -455,7 +441,10 @@
             }
         });
 
-        logoutButton.addEventListener('click', () => _supabase.auth.signOut());
+        logoutButton.addEventListener('click', () => {
+             localStorage.removeItem('lastActiveTab');
+            _supabase.auth.signOut();
+        });
 
         function showContent(contentId) {
             mainContents.forEach(content => content.classList.add('hidden'));
@@ -464,6 +453,7 @@
                 link.classList.remove('nav-active');
                 if(link.dataset.content === contentId) link.classList.add('nav-active');
             });
+            localStorage.setItem('lastActiveTab', contentId);
         }
 
         navLinks.forEach(link => {
@@ -471,6 +461,7 @@
                 e.preventDefault();
                 const contentId = e.currentTarget.dataset.content;
                 showContent(contentId);
+                // Cargar datos solo cuando se hace clic en la pestaña
                 if (contentId === 'users-content') loadUsers();
                 if (contentId === 'cases-history-content') loadCases();
             });
@@ -816,10 +807,17 @@
         });
 
         // --- INICIAR LA APLICACIÓN ---
-        document.addEventListener('DOMContentLoaded', initializeApp);
+        document.addEventListener('DOMContentLoaded', () => {
+             // Iniciar mostrando el loader principal
+            showLoading('Iniciando aplicación...');
+            
+            _supabase.auth.onAuthStateChange((event, session) => {
+                // El listener es la única fuente de verdad
+                handleSession(session, event);
+            });
+        });
 
     </script>
 </body>
 </html>
-
 
