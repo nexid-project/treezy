@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guía de Asistencia Post-Venta</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .product-selected { background-color: #eef2ff !important; border-color: #6366f1 !important; }
+        .toast-enter { opacity: 0; transform: translateY(-20px); }
+        .toast-enter-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; }
+        .toast-exit { opacity: 1; transform: translateY(0); }
+        .toast-exit-active { opacity: 0; transform: translateY(-20px); transition: opacity 300ms, transform 300ms; }
+        .nav-active { background-color: #4f46e5; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <!-- Notification Toast -->
+    <div id="notification-toast" class="fixed top-5 right-5 bg-green-500 text-white py-2 px-4 rounded-lg shadow-lg hidden toast-exit z-50">
+        <p id="notification-message"></p>
+    </div>
+
+    <!-- User Creation Modal -->
+    <div id="user-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-40 hidden">
+        <div class="relative top-20 mx-auto p-5 border w-full max-w-md shadow-lg rounded-xl bg-white">
+            <div class="mt-3 text-center">
+                <h3 class="text-2xl leading-6 font-bold text-gray-900">Crear Nuevo Usuario</h3>
+                <form id="user-form" class="mt-4 space-y-4 text-left">
+                      <div>
+                          <label for="full_name" class="block text-sm font-medium text-gray-700">Nombre Completo</label>
+                          <input type="text" id="full_name" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                      </div>
+                      <div>
+                          <label for="user-email" class="block text-sm font-medium text-gray-700">Correo Electrónico</label>
+                          <input type="email" id="user-email" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                      </div>
+                      <div>
+                          <label for="user-password" class="block text-sm font-medium text-gray-700">Contraseña Temporal</label>
+                          <input type="password" id="user-password" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                      </div>
+                      <div>
+                          <label for="user-role" class="block text-sm font-medium text-gray-700">Rol</label>
+                          <select id="user-role" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                          </select>
+                      </div>
+                      <div class="items-center gap-4 pt-4 flex">
+                          <button id="close-modal-button" type="button" class="w-full px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 focus:outline-none">
+                              Cancelar
+                          </button>
+                          <button id="create-user-button" type="submit" class="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none">
+                              Crear Usuario
+                          </button>
+                      </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Case Detail Modal -->
+    <div id="case-detail-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-40 hidden">
+        <div class="relative top-10 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-xl bg-white mb-10">
+            <div class="mt-3">
+                <div id="case-detail-content" class="bg-gray-50 p-6 rounded-lg"></div>
+                <div class="items-center mt-4">
+                    <button id="close-case-detail-modal" class="w-full px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 focus:outline-none">
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State Container -->
+    <div id="loading-container" class="hidden items-center justify-center h-screen">
+        <div class="text-center">
+            <div class="loader mx-auto"></div>
+            <p id="loading-message" class="mt-4 text-gray-600">Cargando datos...</p>
+        </div>
+    </div>
+
+    <!-- Contenedor de Autenticación (Login) -->
+    <div id="auth-container" class="flex items-center justify-center h-screen">
+       <div class="w-full max-w-md p-8 space-y-8 bg-white rounded-xl shadow-lg">
+            <div class="text-center">
+                 <h1 class="text-2xl md:text-3xl font-bold text-gray-800">Iniciar Sesión</h1>
+                 <p class="mt-2 text-gray-500">Accede a la plataforma de asistencia.</p>
+            </div>
+            <form id="login-form" class="space-y-6">
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700">Correo Electrónico</label>
+                    <input type="email" id="email" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                     <label for="password" class="block text-sm font-medium text-gray-700">Contraseña</label>
+                    <input type="password" id="password" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                 <p id="auth-error" class="text-red-500 text-sm text-center hidden"></p>
+                <div>
+                    <button type="submit" class="w-full bg-indigo-600 text-white font-semibold py-2 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200">
+                        Ingresar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Contenedor Principal de la Aplicación -->
+    <div id="app-container" class="hidden h-screen">
+        <div class="flex h-full">
+            <!-- Barra Lateral de Navegación -->
+            <aside class="bg-gray-800 text-white w-20 flex-shrink-0 p-4 flex flex-col items-center space-y-8">
+                 <div class="p-2 bg-indigo-500 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 8.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 018.25 20.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6A2.25 2.25 0 0115.75 3.75h2.25A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25A2.25 2.25 0 0113.5 8.25V6zM13.5 15.75A2.25 2.25 0 0115.75 13.5h2.25a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+                    </svg>
+                 </div>
+                <nav class="flex flex-col space-y-6">
+                    <a href="#" id="nav-guide" data-content="guide-content" class="nav-link relative group nav-active p-3 rounded-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <span class="absolute left-full ml-4 px-2 py-1 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">Guía de Asistencia</span>
+                    </a>
+                    <a href="#" id="nav-cases" data-content="cases-history-content" class="nav-link relative group hover:bg-gray-700 p-3 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                        <span class="absolute left-full ml-4 px-2 py-1 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">Historial de Casos</span>
+                    </a>
+                    <a href="#" id="nav-stats" data-content="stats-content" class="nav-link relative group hover:bg-gray-700 p-3 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                        <span class="absolute left-full ml-4 px-2 py-1 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">Estadísticas</span>
+                    </a>
+                    <a href="#" id="nav-users" data-content="users-content" class="nav-link relative group hover:bg-gray-700 p-3 rounded-lg transition-colors hidden">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>
+                        <span class="absolute left-full ml-4 px-2 py-1 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">Gestión de Usuarios</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <!-- Contenido Principal -->
+            <main class="flex-1 p-4 md:p-6 overflow-y-auto">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 id="company-name" class="text-lg font-semibold text-gray-700"></h2>
+                    <button id="logout-button" class="flex items-center space-x-2 text-sm text-gray-500 hover:text-red-600 font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 rounded-lg p-2">
+                        <span>Salir</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                    </button>
+                </div>
+
+                <!-- Contenido de la Guía -->
+                <div id="guide-content" class="main-content w-full max-w-2xl mx-auto">
+                    <div class="w-full bg-white rounded-xl shadow-lg p-6 md:p-8">
+                        <div class="text-center mb-8">
+                            <h1 class="text-2xl md:text-3xl font-bold text-gray-800">Guía de Asistencia Post-Venta</h1>
+                            <p id="header-subtitle" class="text-gray-500 mt-2">Ingrese los datos del cliente para comenzar.</p>
+                        </div>
+                        <div id="customer-form">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                <div><label for="nombre" class="block text-sm font-medium text-gray-700">Nombre</label><input type="text" id="nombre" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></div>
+                                <div><label for="boleta" class="block text-sm font-medium text-gray-700">Número de Boleta</label><input type="text" id="boleta" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></div>
+                                <div><label for="mail-cliente" class="block text-sm font-medium text-gray-700">Mail</label><input type="email" id="mail-cliente" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></div>
+                                <div><label for="telefono" class="block text-sm font-medium text-gray-700">Teléfono</label><input type="tel" id="telefono" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></div>
+                                <div class="md:col-span-2"><label for="direccion" class="block text-sm font-medium text-gray-700">Dirección</label><input type="text" id="direccion" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></div>
+                            </div>
+                            <div class="text-center"><button id="start-process-button" class="w-full md:w-auto bg-indigo-600 text-white font-semibold py-2 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200">Comenzar Proceso</button></div>
+                        </div>
+                        <div id="decision-tree-container" class="bg-gray-50 p-6 rounded-lg hidden"><div id="step-content"></div><div id="navigation-buttons" class="mt-6"></div></div>
+                        <div class="mt-6 text-center"><button id="restart-button" class="bg-gray-600 text-white font-semibold py-2 px-5 rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all duration-200 hidden">Guardar y Registrar Nuevo Caso</button></div>
+                    </div>
+                </div>
+                
+                <!-- Contenido de Historial de Casos -->
+                <div id="cases-history-content" class="main-content w-full max-w-6xl mx-auto hidden">
+                     <h1 class="text-3xl font-bold text-gray-800 mb-6">Historial de Casos</h1>
+                     <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                        <div class="p-4"><input type="text" id="search-cases" placeholder="Buscar por N° de caso, cliente, producto..." class="w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-500">
+                                <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3">N° Caso</th>
+                                        <th scope="col" class="px-6 py-3">Fecha</th>
+                                        <th scope="col" class="px-6 py-3">Cliente</th>
+                                        <th scope="col" class="px-6 py-3">Producto</th>
+                                        <th scope="col" class="px-6 py-3">Atendido por</th>
+                                        <th scope="col" class="px-6 py-3 text-center">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cases-history-table-body"></tbody>
+                            </table>
+                        </div>
+                     </div>
+                </div>
+
+                <!-- Contenido de Estadísticas -->
+                <div id="stats-content" class="main-content w-full max-w-5xl mx-auto hidden">
+                     <h1 class="text-3xl font-bold text-gray-800 mb-6">Estadísticas de Casos</h1>
+                     <div class="bg-white rounded-xl shadow-lg p-6">
+                        <p class="text-gray-600">La sección de estadísticas estará disponible próximamente.</p>
+                     </div>
+                </div>
+                
+                <!-- Contenido de Gestión de Usuarios -->
+                <div id="users-content" class="main-content w-full max-w-5xl mx-auto hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h1 class="text-3xl font-bold text-gray-800">Gestión de Usuarios</h1>
+                        <button id="add-user-button" class="bg-indigo-600 text-white font-semibold py-2 px-5 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200">+ Crear Usuario</button>
+                    </div>
+                    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-500">
+                                <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3">Nombre Completo</th>
+                                        <th scope="col" class="px-6 py-3">Correo Electrónico</th>
+                                        <th scope="col" class="px-6 py-3">Rol</th>
+                                        <th scope="col" class="px-6 py-3">Estado</th>
+                                        <th scope="col" class="px-6 py-3">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. CONFIGURACIÓN Y SELECTORES ---
+        const SUPABASE_URL = 'https://svuohxgekohgtppmleer.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2dW9oeGdla29oZ3RwcG1sZWVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg1MTE2NzksImV4cCI6MjA3NDA4NzY3OX0.CSB7G73y2SF6gzWrZe7mBUWtEBZpUmYj9EzyUGPQq7o';
+        const { createClient } = supabase;
+        const _supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // --- Selectores Generales ---
+        const authContainer = document.getElementById('auth-container');
+        const appContainer = document.getElementById('app-container');
+        const loadingContainer = document.getElementById('loading-container');
+        const loadingMessage = document.getElementById('loading-message');
+        const loginForm = document.getElementById('login-form');
+        const authError = document.getElementById('auth-error');
+        const logoutButton = document.getElementById('logout-button');
+        const notificationToast = document.getElementById('notification-toast');
+        const notificationMessage = document.getElementById('notification-message');
+        const companyNameEl = document.getElementById('company-name');
+        
+        // --- Selectores de Navegación y Contenido ---
+        const mainContents = document.querySelectorAll('.main-content');
+        const navLinks = document.querySelectorAll('.nav-link');
+        
+        // --- Selectores de Gestión de Usuarios ---
+        const usersTableBody = document.getElementById('users-table-body');
+        const addUserButton = document.getElementById('add-user-button');
+        const userModal = document.getElementById('user-modal');
+        const closeModalButton = document.getElementById('close-modal-button');
+        const userForm = document.getElementById('user-form');
+        const userRoleSelect = document.getElementById('user-role');
+        
+        // --- Selectores de Guía de Asistencia ---
+        const customerForm = document.getElementById('customer-form');
+        const decisionTreeContainer = document.getElementById('decision-tree-container');
+        const startProcessButton = document.getElementById('start-process-button');
+        const stepContentEl = document.getElementById('step-content');
+        const navigationButtonsEl = document.getElementById('navigation-buttons');
+        const restartButton = document.getElementById('restart-button');
+        const headerSubtitle = document.getElementById('header-subtitle');
+
+        // --- Selectores de Historial de Casos ---
+        const casesHistoryTableBody = document.getElementById('cases-history-table-body');
+        const searchCasesInput = document.getElementById('search-cases');
+        const caseDetailModal = document.getElementById('case-detail-modal');
+        const caseDetailContent = document.getElementById('case-detail-content');
+        const closeCaseDetailModalButton = document.getElementById('close-case-detail-modal');
+
+        // --- Variables Globales de Estado ---
+        let currentUserProfile = null;
+        let decisionTree = {};
+        let allCases = []; // Almacena todos los casos para filtrar localmente
+
+        // --- 2. LÓGICA DE AUTENTICACIÓN, ROLES Y NAVEGACIÓN ---
+        
+        function showLoading(message = 'Cargando...') {
+            authContainer.classList.add('hidden');
+            appContainer.classList.add('hidden');
+            loadingContainer.classList.add('flex');
+            loadingContainer.classList.remove('hidden');
+            loadingMessage.textContent = message;
+        }
+
+        function hideLoading() {
+            loadingContainer.classList.add('hidden');
+            loadingContainer.classList.remove('flex');
+        }
+
+        async function fetchUserProfile(userId) {
+            try {
+                const { data, error } = await _supabase
+                    .from('profiles')
+                    .select(`id, role, status, empresa_id, empresas ( nombre_empresa )`)
+                    .eq('id', userId);
+
+                if (error) throw error;
+                if (!data || data.length === 0) {
+                    showNotification("No se encontró el perfil de usuario.", true);
+                    return null;
+                }
+                if (data.length > 1) {
+                    console.error("Error Crítico: Múltiples perfiles para el mismo ID:", userId);
+                    showNotification("Error crítico de datos del usuario.", true);
+                    return null;
+                }
+
+                const profileData = data[0];
+                if (Array.isArray(profileData.empresas)) {
+                    profileData.empresas = profileData.empresas[0] || null;
+                }
+                if (profileData.status === 'inactivo') {
+                    showNotification('Tu cuenta ha sido desactivada.', true);
+                    await _supabase.auth.signOut();
+                    return null;
+                }
+                return profileData;
+            } catch (error) {
+                console.error('Error al obtener el perfil de usuario:', error);
+                authError.textContent = `Error al cargar los datos del usuario.`;
+                authError.classList.remove('hidden');
+                return null;
+            }
+        }
+        
+        async function loadDecisionTree(empresaId) {
+             if (!empresaId) return false;
+             try {
+                const { data, error } = await _supabase.from('arboles_decision').select('definicion').eq('empresa_id', empresaId).single();
+                if (error) throw new Error("No se encontró un árbol de decisión para tu empresa.");
+                if (!data || !data.definicion) throw new Error("El árbol de decisión está vacío o corrupto.");
+                decisionTree = data.definicion;
+                return true;
+             } catch (error) {
+                console.error('Error loading decision tree:', error.message);
+                if (currentUserProfile.role !== 'Administrador') {
+                    showNotification(error.message, true);
+                }
+                return false;
+             }
+        }
+
+        function updateUIVisibility() {
+            const navUsers = document.getElementById('nav-users');
+            if (currentUserProfile && (currentUserProfile.role === 'Administrador' || currentUserProfile.role === 'Super Administrador')) {
+                navUsers.classList.remove('hidden');
+            } else {
+                navUsers.classList.add('hidden');
+            }
+            companyNameEl.textContent = currentUserProfile?.empresas?.nombre_empresa || '';
+        }
+
+        _supabase.auth.onAuthStateChange(async (event, session) => {
+            if (session?.user) {
+                showLoading('Verificando usuario...');
+                currentUserProfile = await fetchUserProfile(session.user.id);
+                
+                if (currentUserProfile) {
+                    showLoading('Cargando configuración...');
+                    let treeLoaded = true; 
+                    if (currentUserProfile.role !== 'Super Administrador') {
+                        treeLoaded = await loadDecisionTree(currentUserProfile.empresa_id);
+                    }
+                    
+                    hideLoading();
+                    appContainer.classList.remove('hidden');
+                    authContainer.classList.add('hidden');
+                    updateUIVisibility();
+                    
+                    if (!treeLoaded && currentUserProfile.role === 'Administrador') {
+                         showNotification('Advertencia: No se pudo cargar el árbol de decisión.', true);
+                    }
+
+                    if (currentUserProfile.role === 'Super Administrador' || currentUserProfile.role === 'Administrador') {
+                        showContent('users-content');
+                        loadUsers();
+                    } else {
+                        showContent('guide-content');
+                    }
+                } else {
+                    await _supabase.auth.signOut(); // Si no hay perfil, cerramos sesión
+                    hideLoading();
+                    appContainer.classList.add('hidden');
+                    authContainer.classList.remove('hidden');
+                }
+            } else {
+                hideLoading();
+                appContainer.classList.add('hidden');
+                authContainer.classList.remove('hidden');
+                currentUserProfile = null;
+                decisionTree = {};
+                updateUIVisibility();
+            }
+        });
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            authError.classList.add('hidden');
+            const { error } = await _supabase.auth.signInWithPassword({ email, password });
+            if (error) {
+                console.error("Authentication Error Details:", error);
+                authError.textContent = `Error: ${error.message}`;
+                authError.classList.remove('hidden');
+            } else {
+                loginForm.reset();
+            }
+        });
+
+        logoutButton.addEventListener('click', () => _supabase.auth.signOut());
+
+        function showContent(contentId) {
+            mainContents.forEach(content => content.classList.add('hidden'));
+            document.getElementById(contentId)?.classList.remove('hidden');
+            navLinks.forEach(link => {
+                link.classList.remove('nav-active');
+                if(link.dataset.content === contentId) link.classList.add('nav-active');
+            });
+        }
+
+        navLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const contentId = e.currentTarget.dataset.content;
+                showContent(contentId);
+                if (contentId === 'users-content') loadUsers();
+                if (contentId === 'cases-history-content') loadCases();
+            });
+        });
+
+        // --- 3. LÓGICA DE GESTIÓN DE USUARIOS ---
+
+        async function changeUserStatus(userId, newStatus) {
+            try {
+                const { error } = await _supabase.rpc('update_user_status', { user_id_to_update: userId, new_status: newStatus });
+                if (error) throw error;
+                showNotification(`Usuario ${newStatus} correctamente.`);
+                await loadUsers();
+            } catch (error) { showNotification(`Error: ${error.message}`, true); }
+        }
+
+        async function loadUsers() {
+            usersTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-8">Cargando usuarios...</td></tr>';
+            try {
+                const { data: users, error } = await _supabase.rpc('get_users_for_admin');
+                if (error) throw error;
+                usersTableBody.innerHTML = '';
+                if (users.length === 0) {
+                    usersTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-8">No se encontraron usuarios.</td></tr>';
+                    return;
+                }
+                users.forEach(user => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'bg-white border-b hover:bg-gray-50';
+                    const isCurrentUser = user.id === currentUserProfile.id;
+                    const canBeModified = !isCurrentUser && !(currentUserProfile.role === 'Administrador' && user.role === 'Super Administrador');
+                    const statusBadge = user.status === 'activo' ? `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Activo</span>` : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">Inactivo</span>`;
+                    let actionButton = `<button disabled class="text-gray-400 cursor-not-allowed text-xs font-medium">N/A</button>`;
+                    if (canBeModified) {
+                        const newStatus = user.status === 'activo' ? 'inactivo' : 'activo';
+                        const btnText = user.status === 'activo' ? 'Desactivar' : 'Activar';
+                        const btnColor = user.status === 'activo' ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900';
+                        actionButton = `<button data-userid="${user.id}" data-newstatus="${newStatus}" class="user-status-btn ${btnColor} font-medium">${btnText}</button>`;
+                    }
+                    tr.innerHTML = `<td class="px-6 py-4 font-medium text-gray-900">${user.full_name||'N/A'}</td><td class="px-6 py-4">${user.email}</td><td class="px-6 py-4">${user.role}</td><td class="px-6 py-4">${statusBadge}</td><td class="px-6 py-4">${actionButton}</td>`;
+                    usersTableBody.appendChild(tr);
+                });
+                document.querySelectorAll('.user-status-btn').forEach(button => button.addEventListener('click', (e) => changeUserStatus(e.target.dataset.userid, e.target.dataset.newstatus)));
+            } catch (error) {
+                console.error('Error loading users:', error);
+                usersTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-red-500">Error: ${error.message}</td></tr>`;
+            }
+        }
+        
+        addUserButton.addEventListener('click', () => {
+            userForm.reset();
+            userRoleSelect.innerHTML = (currentUserProfile.role === 'Super Administrador') ? `<option value="atendedor">Atendedor</option><option value="Administrador">Administrador</option>` : `<option value="atendedor">Atendedor</option>`;
+            userModal.classList.remove('hidden');
+        });
+
+        closeModalButton.addEventListener('click', () => userModal.classList.add('hidden'));
+
+        userForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const createButton = document.getElementById('create-user-button');
+            createButton.disabled = true; createButton.textContent = 'Creando...';
+            try {
+                const { error } = await _supabase.rpc('admin_create_user', { full_name: document.getElementById('full_name').value, email: document.getElementById('user-email').value, password: document.getElementById('user-password').value, role: userRoleSelect.value, empresa_id: currentUserProfile.empresa_id });
+                if (error) throw error;
+                showNotification('Usuario creado exitosamente.');
+                userModal.classList.add('hidden');
+                await loadUsers();
+            } catch(error) { showNotification(`Error: ${error.message}`, true); } 
+            finally { createButton.disabled = false; createButton.textContent = 'Crear Usuario'; }
+        });
+        
+        // --- 4. LÓGICA DEL HISTORIAL DE CASOS ---
+        
+        function showCaseDetails(caseData) {
+            caseDetailContent.innerHTML = generateCaseSummaryHTML(caseData, caseData.solucion_final);
+            caseDetailModal.classList.remove('hidden');
+        }
+
+        closeCaseDetailModalButton.addEventListener('click', () => caseDetailModal.classList.add('hidden'));
+        
+        function renderCases(casesToRender) {
+            casesHistoryTableBody.innerHTML = '';
+            if (casesToRender.length === 0) {
+                casesHistoryTableBody.innerHTML = '<tr><td colspan="6" class="text-center p-8">No se encontraron casos.</td></tr>';
+                return;
+            }
+            casesToRender.forEach(caseItem => {
+                const tr = document.createElement('tr');
+                tr.className = 'bg-white border-b hover:bg-gray-50';
+                const formattedDate = new Date(caseItem.created_at).toLocaleDateString('es-CL');
+                tr.innerHTML = `
+                    <td class="px-6 py-4 font-medium text-gray-900">${caseItem.numero_caso}</td>
+                    <td class="px-6 py-4">${formattedDate}</td>
+                    <td class="px-6 py-4">${caseItem.cliente_nombre || 'N/A'}</td>
+                    <td class="px-6 py-4 truncate max-w-xs">${caseItem.producto_seleccionado || 'N/A'}</td>
+                    <td class="px-6 py-4">${caseItem.atendedor_nombre || 'N/A'}</td>
+                    <td class="px-6 py-4 text-center">
+                        <button class="view-case-btn text-indigo-600 hover:text-indigo-900 font-medium">Ver Detalles</button>
+                    </td>
+                `;
+                tr.querySelector('.view-case-btn').addEventListener('click', () => showCaseDetails(caseItem.full_case_data));
+                casesHistoryTableBody.appendChild(tr);
+            });
+        }
+
+        async function loadCases() {
+            casesHistoryTableBody.innerHTML = '<tr><td colspan="6" class="text-center p-8">Cargando historial...</td></tr>';
+            try {
+                const { data, error } = await _supabase.rpc('get_cases_for_user');
+                if (error) throw error;
+                allCases = data;
+                renderCases(allCases);
+            } catch (error) {
+                console.error('Error loading cases:', error);
+                casesHistoryTableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-red-500">Error: ${error.message}</td></tr>`;
+            }
+        }
+        
+        searchCasesInput.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            if (!searchTerm) {
+                renderCases(allCases);
+                return;
+            }
+            const filteredCases = allCases.filter(c => 
+                c.numero_caso?.toLowerCase().includes(searchTerm) ||
+                c.cliente_nombre?.toLowerCase().includes(searchTerm) ||
+                c.producto_seleccionado?.toLowerCase().includes(searchTerm)
+            );
+            renderCases(filteredCases);
+        });
+
+        // --- 5. LÓGICA DEL ÁRBOL DE DECISIÓN ---
+        let currentCaseData = {}; 
+        let history = [];
+
+        function showNotification(message, isError = false) {
+            notificationMessage.textContent = message;
+            notificationToast.className = 'fixed top-5 right-5 text-white py-2 px-4 rounded-lg shadow-lg toast-enter z-50';
+            notificationToast.classList.add(isError ? 'bg-red-500' : 'bg-green-500');
+            setTimeout(() => notificationToast.classList.add('toast-enter-active'), 10);
+            setTimeout(() => {
+                notificationToast.classList.remove('toast-enter-active');
+                notificationToast.classList.add('toast-exit-active');
+                setTimeout(() => notificationToast.classList.add('hidden'), 300);
+            }, 4000);
+        }
+
+        function captureChoice(question, answer) {
+            if (question.includes('marca')) currentCaseData.marca_producto = answer;
+            else if (question.includes('Dónde lo compró')) currentCaseData.canal_venta = answer;
+            else if (question.includes('servicio requiere')) currentCaseData.tipo_servicio = answer;
+            if (!currentCaseData.historial_pasos) currentCaseData.historial_pasos = [];
+            currentCaseData.historial_pasos.push({ question, answer });
+        }
+
+        async function navigateTo(stepId) { 
+            history.push(stepId); 
+            await renderStep(stepId); 
+        }
+
+        function goBack() {
+            if (history.length <= 1) {
+                decisionTreeContainer.classList.add('hidden');
+                customerForm.classList.remove('hidden');
+                headerSubtitle.textContent = 'Ingrese los datos del cliente para comenzar.';
+                history = [];
+                navigationButtonsEl.innerHTML = '';
+            } else { 
+                history.pop(); 
+                const previousStepId = history[history.length - 1];
+                renderStep(previousStepId);
+            }
+        }
+
+        async function renderProductStep(step) {
+            stepContentEl.innerHTML = `<p class="text-xl font-semibold text-gray-800 mb-4 text-center">¿Qué producto compró?</p><input type="text" id="product-search" placeholder="Buscar producto..." class="w-full px-3 py-2 mb-4 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"><div id="product-list-container" class="max-h-60 overflow-y-auto border rounded-md p-2 space-y-2"></div><button id="product-continue-button" class="mt-6 w-full bg-indigo-600 text-white font-semibold py-2 px-5 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>Continuar</button>`;
+            const searchInput = document.getElementById('product-search');
+            const productListContainer = document.getElementById('product-list-container');
+            const continueButton = document.getElementById('product-continue-button');
+            let selectedProduct = null;
+            
+            const displayProducts = async (filter = '') => {
+                productListContainer.innerHTML = '<div class="flex justify-center p-4"><div class="loader"></div></div>';
+                try {
+                    let query = _supabase
+                        .from('productos')
+                        .select('nombre_producto')
+                        .eq('empresa_id', currentUserProfile.empresa_id)
+                        .eq('marca', currentCaseData.marca_producto)
+                        .eq('status', 'activo');
+
+                    if (filter) {
+                        query = query.ilike('nombre_producto', `%${filter}%`);
+                    }
+                    
+                    const { data: products, error } = await query.order('nombre_producto');
+                    if (error) throw error;
+
+                    productListContainer.innerHTML = '';
+                    const currentProducts = products.map(p => p.nombre_producto);
+                    
+                    if (currentProducts.length === 0) {
+                        productListContainer.innerHTML = `<p class="text-center text-gray-500 p-4">No se encontraron productos para la marca "${currentCaseData.marca_producto}".</p>`;
+                    }
+
+                    currentProducts.forEach(product => {
+                        const productButton = document.createElement('button');
+                        productButton.className = 'w-full text-left p-3 bg-white border-2 border-gray-200 rounded-lg hover:bg-indigo-50 hover:border-indigo-500 transition-all';
+                        productButton.textContent = product;
+                        productButton.onclick = () => {
+                            selectedProduct = product;
+                            currentCaseData.producto_seleccionado = product;
+                            Array.from(productListContainer.children).forEach(btn => btn.classList.remove('product-selected'));
+                            productButton.classList.add('product-selected');
+                            continueButton.disabled = false;
+                        };
+                        productListContainer.appendChild(productButton);
+                    });
+                } catch (error) {
+                    console.error('Error fetching products:', error);
+                    productListContainer.innerHTML = `<p class="text-center text-red-500 p-4">Error al cargar la lista de productos.</p>`;
+                }
+            };
+            
+            let searchTimeout;
+            searchInput.addEventListener('input', () => {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    displayProducts(searchInput.value);
+                }, 300);
+            });
+            
+            continueButton.addEventListener('click', () => { 
+                if(selectedProduct) navigateTo(step.next); 
+            });
+            
+            await displayProducts();
+        }
+
+        function generateCaseSummaryHTML(caseDataObject, solutionText = null) {
+            const createRow = (label, value) => {
+                const displayValue = value || '<span class="text-gray-400">No ingresado</span>';
+                return `<div class="flex justify-between py-2 border-b border-gray-200">
+                            <strong class="text-gray-600 font-medium">${label}:</strong>
+                            <span class="text-gray-800 text-right">${displayValue}</span>
+                        </div>`;
+            };
+
+            let finalHTML = `
+                <div class="space-y-6">
+                    <div>
+                        <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Resumen del Caso</h3>
+                        <div class="space-y-2">
+                            ${createRow('Nombre Cliente', caseDataObject.cliente_nombre)}
+                            ${createRow('N° Boleta', caseDataObject.cliente_boleta)}
+                            ${createRow('Mail', caseDataObject.cliente_mail)}
+                            ${createRow('Teléfono', caseDataObject.cliente_telefono)}
+                            ${createRow('Dirección', caseDataObject.cliente_direccion)}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-700 mb-3">Detalles del Caso</h4>
+                        <div class="space-y-2">
+                             ${createRow('N° de Caso', caseDataObject.numero_caso || '<em class="text-gray-500">(Se generará al guardar)</em>')}
+                             ${createRow('Marca', caseDataObject.marca_producto)}
+                             ${createRow('Canal de Venta', caseDataObject.canal_venta)}
+                             ${createRow('Producto', caseDataObject.producto_seleccionado)}
+                             ${createRow('Tipo de Servicio', caseDataObject.tipo_servicio)}
+                        </div>
+                    </div>
+            `;
+
+            if (solutionText) {
+                finalHTML += `
+                    <div>
+                        <h3 class="text-lg font-semibold text-indigo-700 mb-3">Solución Recomendada:</h3>
+                        <p class="text-gray-700 leading-relaxed bg-indigo-50 p-4 rounded-lg">${solutionText}</p>
+                    </div>
+                `;
+            }
+
+            finalHTML += `</div>`;
+            return finalHTML;
+        }
+
+        async function renderStep(stepId) {
+            const step = decisionTree.tree[stepId];
+            if (!step) {
+                console.error(`Paso no encontrado en el árbol de decisión: ${stepId}`);
+                showNotification('Error: Flujo de decisión incompleto.', true);
+                return;
+            }
+            stepContentEl.innerHTML = ''; 
+            navigationButtonsEl.innerHTML = ''; 
+            restartButton.classList.add('hidden');
+            if (history.length > 1) {
+                const backButton = document.createElement('button'); 
+                backButton.textContent = '← Volver'; 
+                backButton.className = 'text-sm text-gray-600 hover:text-indigo-600 font-medium'; 
+                backButton.onclick = goBack; 
+                navigationButtonsEl.appendChild(backButton); 
+            }
+            if (step.type === 'product_list') { 
+                await renderProductStep(step); 
+                return; 
+            }
+            if (step.solution) {
+                currentCaseData.solucion_final = step.solution;
+                stepContentEl.innerHTML = generateCaseSummaryHTML(currentCaseData, step.solution);
+                restartButton.classList.remove('hidden');
+            } else if (step.question) {
+                const questionEl = document.createElement('p'); 
+                questionEl.className = 'text-xl font-semibold text-gray-800 mb-6 text-center'; 
+                questionEl.textContent = step.question; 
+                stepContentEl.appendChild(questionEl);
+                const answersContainer = document.createElement('div'); 
+                answersContainer.className = 'grid grid-cols-1 md:grid-cols-2 gap-4';
+                step.answers.forEach(answer => {
+                    const button = document.createElement('button');
+                    button.className = 'w-full text-left p-4 bg-white border-2 border-gray-200 rounded-lg hover:bg-indigo-50 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-400';
+                    button.innerHTML = `<span class="font-medium text-gray-700">${answer.text}</span>`;
+                    button.onclick = () => { captureChoice(step.question, answer.text); navigateTo(answer.next); };
+                    answersContainer.appendChild(button);
+                });
+                stepContentEl.appendChild(answersContainer);
+            }
+        }
+        
+        function resetFlow() {
+            customerForm.classList.remove('hidden'); customerForm.querySelectorAll('input').forEach(input => input.value = '');
+            decisionTreeContainer.classList.add('hidden'); restartButton.classList.add('hidden');
+            headerSubtitle.textContent = 'Ingrese los datos del cliente para comenzar.'; currentCaseData = {}; history = [];
+        }
+
+        startProcessButton.addEventListener('click', () => {
+            currentCaseData = { cliente_nombre: document.getElementById('nombre').value, cliente_boleta: document.getElementById('boleta').value, cliente_mail: document.getElementById('mail-cliente').value, cliente_telefono: document.getElementById('telefono').value, cliente_direccion: document.getElementById('direccion').value };
+            customerForm.classList.add('hidden'); decisionTreeContainer.classList.remove('hidden');
+            headerSubtitle.textContent = 'Sigue los pasos para encontrar la solución correcta.'; history = []; navigateTo('start');
+        });
+
+        restartButton.addEventListener('click', async () => {
+            restartButton.disabled = true; restartButton.textContent = 'Guardando...';
+            const { data: { user } } = await _supabase.auth.getUser();
+            if (!user) { showNotification('Error: Sesión no encontrada.', true); restartButton.disabled = false; restartButton.textContent = 'Guardar y Registrar Nuevo Caso'; return; }
+            
+            const today = new Date(); const datePrefix = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+            const { count, error: countError } = await _supabase.from('casos').select('*', { count: 'exact', head: true }).like('numero_caso', `${datePrefix}-%`);
+            if (countError) { showNotification('Error al generar número de caso.', true); restartButton.disabled = false; restartButton.textContent = 'Guardar y Registrar Nuevo Caso'; return; }
+            
+            const newSequence = (count || 0) + 1; currentCaseData.numero_caso = `${datePrefix}-${String(newSequence).padStart(3, '0')}`;
+            currentCaseData.atendedor_id = user.id;
+            currentCaseData.empresa_id = currentUserProfile.empresa_id;
+            
+            const { error: insertError } = await _supabase.from('casos').insert([currentCaseData]);
+            if (insertError) { showNotification(`Error al guardar: ${insertError.message}`, true);
+            } else { showNotification(`Caso ${currentCaseData.numero_caso} guardado exitosamente.`); resetFlow(); }
+            
+            restartButton.disabled = false;
+            restartButton.textContent = 'Guardar y Registrar Nuevo Caso';
+        });
+
+    </script>
+</body>
+</html>
+
