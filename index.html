@@ -767,22 +767,42 @@
         });
 
         restartButton.addEventListener('click', async () => {
-            restartButton.disabled = true; restartButton.textContent = 'Guardando...';
+            restartButton.disabled = true;
+            restartButton.textContent = 'Guardando...';
+
             const { data: { user } } = await _supabase.auth.getUser();
-            if (!user) { showNotification('Error: Sesión no encontrada.', true); restartButton.disabled = false; restartButton.textContent = 'Guardar y Registrar Nuevo Caso'; return; }
-            
-            const today = new Date(); const datePrefix = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
-            const { count, error: countError } = await _supabase.from('casos').select('*', { count: 'exact', head: true }).like('numero_caso', `${datePrefix}-%`);
-            if (countError) { showNotification('Error al generar número de caso.', true); restartButton.disabled = false; restartButton.textContent = 'Guardar y Registrar Nuevo Caso'; return; }
-            
-            const newSequence = (count || 0) + 1; currentCaseData.numero_caso = `${datePrefix}-${String(newSequence).padStart(3, '0')}`;
-            currentCaseData.atendedor_id = user.id;
-            currentCaseData.empresa_id = currentUserProfile.empresa_id;
-            
-            const { error: insertError } = await _supabase.from('casos').insert([currentCaseData]);
-            if (insertError) { showNotification(`Error al guardar: ${insertError.message}`, true);
-            } else { showNotification(`Caso ${currentCaseData.numero_caso} guardado exitosamente.`); resetFlow(); }
-            
+            if (!user) {
+                showNotification('Error: Sesión no encontrada.', true);
+                restartButton.disabled = false;
+                restartButton.textContent = 'Guardar y Registrar Nuevo Caso';
+                return;
+            }
+
+            const casePayload = {
+                p_atendedor_id: user.id,
+                p_empresa_id: currentUserProfile.empresa_id,
+                p_cliente_nombre: currentCaseData.cliente_nombre,
+                p_cliente_boleta: currentCaseData.cliente_boleta,
+                p_cliente_mail: currentCaseData.cliente_mail,
+                p_cliente_telefono: currentCaseData.cliente_telefono,
+                p_cliente_direccion: currentCaseData.cliente_direccion,
+                p_marca_producto: currentCaseData.marca_producto,
+                p_canal_venta: currentCaseData.canal_venta,
+                p_producto_seleccionado: currentCaseData.producto_seleccionado,
+                p_tipo_servicio: currentCaseData.tipo_servicio,
+                p_solucion_final: currentCaseData.solucion_final,
+                p_historial_pasos: currentCaseData.historial_pasos
+            };
+
+            const { data: newCaseNumber, error: rpcError } = await _supabase.rpc('create_case_with_unique_number', casePayload);
+
+            if (rpcError) {
+                showNotification(`Error al guardar: ${rpcError.message}`, true);
+            } else {
+                showNotification(`Caso ${newCaseNumber} guardado exitosamente.`);
+                resetFlow();
+            }
+
             restartButton.disabled = false;
             restartButton.textContent = 'Guardar y Registrar Nuevo Caso';
         });
