@@ -377,6 +377,12 @@
         
         async function handleSession(session, event) {
             if (!session || !session.user) {
+                // CORRECCIÓN: Limpiar todo el estado de la sesión al cerrar sesión.
+                currentUserProfile = null;
+                decisionTree = {};
+                allCases = [];
+                allProducts = [];
+                localStorage.removeItem('lastActiveTab');
                 showLoginScreen();
                 return;
             }
@@ -442,7 +448,7 @@
         });
 
         logoutButton.addEventListener('click', () => {
-             localStorage.removeItem('lastActiveTab');
+            // Ya no es necesario limpiar el localStorage aquí, se maneja en handleSession.
             _supabase.auth.signOut();
         });
 
@@ -820,4 +826,5 @@
     </script>
 </body>
 </html>
+
 
