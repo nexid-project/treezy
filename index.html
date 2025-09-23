@@ -246,7 +246,7 @@
     <script>
         // --- 1. CONFIGURACIÓN Y SELECTORES ---
         const SUPABASE_URL = 'https://svuohxgekohgtppmleer.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2dW9oeGdla29oZ3RwcG1sZWVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg1MTE2NzksImV4cCI6MjA3NDA4NzY3OX0.CSB7G73y2SF6gzWrZe7mBUWtEBZpUmYj9EzyUGPQq7o';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2dW9oeGdla29oZ3RwcG1sZWVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg1MTE2NzksImV4cCI6MjA3NDA4NzY3OX0.CSB7G3y2SF6gzWrZe7mBUWtEBZpUmYj9EzyUGPQq7o';
         const { createClient } = supabase;
         
         const supabaseOptions = {
@@ -375,16 +375,26 @@
             companyNameEl.textContent = currentUserProfile?.empresas?.nombre_empresa || '';
         }
         
-        async function setupUserSession(userId, event) {
-            showLoading('Verificando usuario...');
+        async function setupUserSession(userId, isNewLogin) {
+            // Solo muestra el loader si es un login nuevo, para evitar parpadeos al recargar.
+            if(isNewLogin) showLoading('Verificando usuario...');
+            
             const profile = await fetchUserProfile(userId);
 
             if (profile) {
+                const wasAlreadyLoggedIn = !!currentUserProfile;
                 currentUserProfile = profile;
-                showLoading('Cargando configuración...');
-                let dataLoaded = true;
-                if (profile.role !== 'Super Administrador') {
-                    dataLoaded = await loadInitialData(profile.empresa_id);
+                
+                // Carga los datos solo si es la primera vez o si no se han cargado antes.
+                if(!wasAlreadyLoggedIn) {
+                    showLoading('Cargando configuración...');
+                    let dataLoaded = true;
+                    if (profile.role !== 'Super Administrador') {
+                        dataLoaded = await loadInitialData(profile.empresa_id);
+                    }
+                     if (!dataLoaded && profile.role === 'Administrador') {
+                        showNotification('Advertencia: No se pudieron cargar datos iniciales (árbol/productos).', true);
+                    }
                 }
 
                 hideLoading();
@@ -392,11 +402,8 @@
                 appContainer.classList.remove('hidden');
                 updateUIVisibility();
 
-                if (!dataLoaded && profile.role === 'Administrador') {
-                    showNotification('Advertencia: No se pudieron cargar datos iniciales (árbol/productos).', true);
-                }
-
-                if (event === 'SIGNED_IN') {
+                // Redirige a la página de inicio solo si es un login nuevo.
+                if (isNewLogin) {
                      if (profile.role === 'Super Administrador' || profile.role === 'Administrador') {
                         showContent('users-content');
                         loadUsers();
@@ -412,14 +419,15 @@
         async function initializeApp() {
             const { data: { session } } = await _supabase.auth.getSession();
             if (session && session.user) {
-                await setupUserSession(session.user.id, 'INITIAL_SESSION');
+                await setupUserSession(session.user.id, false); // false indica que no es un login nuevo
             } else {
                 showLoginScreen();
             }
 
             _supabase.auth.onAuthStateChange((event, session) => {
+                // El evento 'SIGNED_IN' solo se considera un login nuevo.
                 if (event === 'SIGNED_IN' && session && session.user) {
-                    setupUserSession(session.user.id, event);
+                    setupUserSession(session.user.id, true); // true indica que es un login nuevo
                 } else if (event === 'SIGNED_OUT') {
                     showLoginScreen();
                     currentUserProfile = null;
