@@ -90,15 +90,15 @@
     </div>
 
     <!-- Loading State Container -->
-    <div id="loading-container" class="hidden items-center justify-center h-screen">
+    <div id="loading-container" class="flex items-center justify-center h-screen">
         <div class="text-center">
             <div class="loader mx-auto"></div>
-            <p id="loading-message" class="mt-4 text-gray-600">Cargando datos...</p>
+            <p id="loading-message" class="mt-4 text-gray-600">Iniciando aplicación...</p>
         </div>
     </div>
 
     <!-- Contenedor de Autenticación (Login) -->
-    <div id="auth-container" class="flex items-center justify-center h-screen">
+    <div id="auth-container" class="hidden items-center justify-center h-screen">
        <div class="w-full max-w-md p-8 space-y-8 bg-white rounded-xl shadow-lg">
             <div class="text-center">
                  <h1 class="text-2xl md:text-3xl font-bold text-gray-800">Iniciar Sesión</h1>
@@ -249,7 +249,6 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2dW9oeGdla29oZ3RwcG1sZWVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg1MTE2NzksImV4cCI6MjA3NDA4NzY3OX0.CSB7G73y2SF6gzWrZe7mBUWtEBZpUmYj9EzyUGPQq7o';
         const { createClient } = supabase;
         
-        // Configuración robusta del cliente de Supabase
         const supabaseOptions = {
             auth: {
                 persistSession: true,
@@ -260,7 +259,7 @@
         };
         const _supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, supabaseOptions);
 
-        // --- Selectores Generales ---
+        // --- Selectores (el resto del código HTML ya los define) ---
         const authContainer = document.getElementById('auth-container');
         const appContainer = document.getElementById('app-container');
         const loadingContainer = document.getElementById('loading-container');
@@ -268,23 +267,15 @@
         const loginForm = document.getElementById('login-form');
         const authError = document.getElementById('auth-error');
         const logoutButton = document.getElementById('logout-button');
-        const notificationToast = document.getElementById('notification-toast');
-        const notificationMessage = document.getElementById('notification-message');
         const companyNameEl = document.getElementById('company-name');
-        
-        // --- Selectores de Navegación y Contenido ---
         const mainContents = document.querySelectorAll('.main-content');
         const navLinks = document.querySelectorAll('.nav-link');
-        
-        // --- Selectores de Gestión de Usuarios ---
         const usersTableBody = document.getElementById('users-table-body');
         const addUserButton = document.getElementById('add-user-button');
         const userModal = document.getElementById('user-modal');
         const closeModalButton = document.getElementById('close-modal-button');
         const userForm = document.getElementById('user-form');
         const userRoleSelect = document.getElementById('user-role');
-        
-        // --- Selectores de Guía de Asistencia ---
         const customerForm = document.getElementById('customer-form');
         const decisionTreeContainer = document.getElementById('decision-tree-container');
         const startProcessButton = document.getElementById('start-process-button');
@@ -292,33 +283,40 @@
         const navigationButtonsEl = document.getElementById('navigation-buttons');
         const restartButton = document.getElementById('restart-button');
         const headerSubtitle = document.getElementById('header-subtitle');
-
-        // --- Selectores de Historial de Casos ---
         const casesHistoryTableBody = document.getElementById('cases-history-table-body');
         const searchCasesInput = document.getElementById('search-cases');
         const caseDetailModal = document.getElementById('case-detail-modal');
         const caseDetailContent = document.getElementById('case-detail-content');
         const closeCaseDetailModalButton = document.getElementById('close-case-detail-modal');
+        const notificationToast = document.getElementById('notification-toast');
+        const notificationMessage = document.getElementById('notification-message');
 
         // --- Variables Globales de Estado ---
         let currentUserProfile = null;
         let decisionTree = {};
-        let allCases = []; // Almacena todos los casos para filtrar localmente
-        let allProducts = []; // Almacena todos los productos de la empresa
+        let allCases = []; 
+        let allProducts = [];
 
-        // --- 2. LÓGICA DE AUTENTICACIÓN, ROLES Y NAVEGÁCION ---
+        // --- 2. LÓGICA DE INICIALIZACIÓN Y AUTENTICACIÓN ---
         
         function showLoading(message = 'Cargando...') {
             authContainer.classList.add('hidden');
             appContainer.classList.add('hidden');
-            loadingContainer.classList.add('flex');
             loadingContainer.classList.remove('hidden');
+            loadingContainer.classList.add('flex');
             loadingMessage.textContent = message;
         }
 
         function hideLoading() {
             loadingContainer.classList.add('hidden');
             loadingContainer.classList.remove('flex');
+        }
+        
+        function showLoginScreen() {
+            hideLoading();
+            authContainer.classList.remove('hidden');
+            authContainer.classList.add('flex');
+            appContainer.classList.add('hidden');
         }
 
         async function fetchUserProfile(userId) {
@@ -327,11 +325,9 @@
                     .from('profiles')
                     .select(`id, role, status, empresa_id, empresas ( nombre_empresa )`)
                     .eq('id', userId)
-                    .single(); // Usamos single() para asegurar un solo resultado
-
+                    .single(); 
                 if (error) throw error;
                 if (!data) return null;
-
                 if (data.status === 'inactivo') {
                     showNotification('Tu cuenta ha sido desactivada.', true);
                     await _supabase.auth.signOut();
@@ -340,11 +336,7 @@
                 return data;
             } catch (error) {
                 console.error('Error al obtener el perfil de usuario:', error);
-                if (error.message.includes("multiple (or no) rows returned")) {
-                     authError.textContent = `Error: No se encontró un perfil para este usuario.`;
-                } else {
-                     authError.textContent = `Error al cargar los datos del usuario.`;
-                }
+                authError.textContent = `Error al cargar datos de usuario.`;
                 authError.classList.remove('hidden');
                 return null;
             }
@@ -353,15 +345,11 @@
         async function loadInitialData(empresaId) {
              if (!empresaId) return false;
              try {
-                // Cargar árbol de decisión
                 const treePromise = _supabase.from('arboles_decision').select('definicion').eq('empresa_id', empresaId).single();
-                // Cargar productos
                 const productsPromise = _supabase.from('productos').select('nombre_producto, marca').eq('empresa_id', empresaId).eq('status', 'activo');
-
                 const [treeResult, productsResult] = await Promise.all([treePromise, productsPromise]);
 
-                if (treeResult.error) throw new Error("No se encontró un árbol de decisión para tu empresa.");
-                if (!treeResult.data || !treeResult.data.definicion) throw new Error("El árbol de decisión está vacío o corrupto.");
+                if (treeResult.error || !treeResult.data || !treeResult.data.definicion) throw new Error("Árbol de decisión no encontrado o corrupto.");
                 decisionTree = treeResult.data.definicion;
 
                 if(productsResult.error) throw new Error("No se pudieron cargar los productos.");
@@ -370,8 +358,7 @@
                 return true;
              } catch (error) {
                 console.error('Error loading initial data:', error.message);
-                // Solo mostramos error a roles que no son administradores, ellos pueden operar sin árbol.
-                if (currentUserProfile.role !== 'Administrador' && currentUserProfile.role !== 'Super Administrador') {
+                if (currentUserProfile && currentUserProfile.role !== 'Administrador' && currentUserProfile.role !== 'Super Administrador') {
                     showNotification(error.message, true);
                 }
                 return false;
@@ -387,50 +374,64 @@
             }
             companyNameEl.textContent = currentUserProfile?.empresas?.nombre_empresa || '';
         }
+        
+        async function setupUserSession(userId, event) {
+            showLoading('Verificando usuario...');
+            const profile = await fetchUserProfile(userId);
 
-        _supabase.auth.onAuthStateChange(async (event, session) => {
-            if (session?.user) {
-                showLoading('Verificando usuario...');
-                currentUserProfile = await fetchUserProfile(session.user.id);
-                
-                if (currentUserProfile) {
-                    showLoading('Cargando configuración...');
-                    let dataLoaded = true; 
-                    if (currentUserProfile.role !== 'Super Administrador') {
-                        dataLoaded = await loadInitialData(currentUserProfile.empresa_id);
-                    }
-                    
-                    hideLoading();
-                    appContainer.classList.remove('hidden');
-                    authContainer.classList.add('hidden');
-                    updateUIVisibility();
-                    
-                    if (!dataLoaded && currentUserProfile.role === 'Administrador') {
-                         showNotification('Advertencia: No se pudieron cargar datos iniciales (árbol/productos).', true);
-                    }
+            if (profile) {
+                currentUserProfile = profile;
+                showLoading('Cargando configuración...');
+                let dataLoaded = true;
+                if (profile.role !== 'Super Administrador') {
+                    dataLoaded = await loadInitialData(profile.empresa_id);
+                }
 
-                    if (currentUserProfile.role === 'Super Administrador' || currentUserProfile.role === 'Administrador') {
+                hideLoading();
+                authContainer.classList.add('hidden');
+                appContainer.classList.remove('hidden');
+                updateUIVisibility();
+
+                if (!dataLoaded && profile.role === 'Administrador') {
+                    showNotification('Advertencia: No se pudieron cargar datos iniciales (árbol/productos).', true);
+                }
+
+                if (event === 'SIGNED_IN') {
+                     if (profile.role === 'Super Administrador' || profile.role === 'Administrador') {
                         showContent('users-content');
                         loadUsers();
                     } else {
                         showContent('guide-content');
                     }
-                } else {
-                    await _supabase.auth.signOut(); // Si no hay perfil, cerramos sesión
-                    hideLoading();
-                    appContainer.classList.add('hidden');
-                    authContainer.classList.remove('hidden');
                 }
             } else {
-                hideLoading();
-                appContainer.classList.add('hidden');
-                authContainer.classList.remove('hidden');
-                currentUserProfile = null;
-                decisionTree = {};
-                updateUIVisibility();
+                showLoginScreen();
             }
-        });
+        }
+        
+        async function initializeApp() {
+            const { data: { session } } = await _supabase.auth.getSession();
+            if (session && session.user) {
+                await setupUserSession(session.user.id, 'INITIAL_SESSION');
+            } else {
+                showLoginScreen();
+            }
 
+            _supabase.auth.onAuthStateChange((event, session) => {
+                if (event === 'SIGNED_IN' && session && session.user) {
+                    setupUserSession(session.user.id, event);
+                } else if (event === 'SIGNED_OUT') {
+                    showLoginScreen();
+                    currentUserProfile = null;
+                    decisionTree = {};
+                    allCases = [];
+                    allProducts = [];
+                    updateUIVisibility();
+                }
+            });
+        }
+        
+        // --- El resto de tus funciones (loginForm, showContent, etc.) permanecen aquí sin cambios ---
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const email = document.getElementById('email').value;
@@ -467,8 +468,7 @@
             });
         });
 
-        // --- 3. LÓGICA DE GESTIÓN DE USUARIOS ---
-
+        // --- LÓGICA DE GESTIÓN DE USUARIOS ---
         async function changeUserStatus(userId, newStatus) {
             try {
                 const { error } = await _supabase.rpc('update_user_status', { user_id_to_update: userId, new_status: newStatus });
@@ -533,8 +533,7 @@
             finally { createButton.disabled = false; createButton.textContent = 'Crear Usuario'; }
         });
         
-        // --- 4. LÓGICA DEL HISTORIAL DE CASOS ---
-        
+        // --- LÓGICA DEL HISTORIAL DE CASOS ---
         function showCaseDetails(caseData) {
             caseDetailContent.innerHTML = generateCaseSummaryHTML(caseData, caseData.solucion_final);
             caseDetailModal.classList.remove('hidden');
@@ -594,7 +593,7 @@
             renderCases(filteredCases);
         });
 
-        // --- 5. LÓGICA DEL ÁRBOL DE DECISIÓN ---
+        // --- LÓGICA DEL ÁRBOL DE DECISIÓN ---
         let currentCaseData = {}; 
         let history = [];
 
@@ -639,7 +638,6 @@
             
             const displayProducts = (filter = '') => {
                 productListContainer.innerHTML = '';
-                // Filtra la lista global de productos
                 const filteredProducts = allProducts
                     .filter(p => p.marca === currentCaseData.marca_producto && p.nombre_producto.toLowerCase().includes(filter.toLowerCase()));
 
@@ -664,7 +662,7 @@
 
             searchInput.addEventListener('input', () => displayProducts(searchInput.value));
             continueButton.addEventListener('click', () => { if(selectedProduct) navigateTo(step.next); });
-            displayProducts(); // Muestra la lista inicial
+            displayProducts(); 
         }
 
         function generateCaseSummaryHTML(caseDataObject, solutionText = null) {
@@ -788,6 +786,9 @@
             restartButton.disabled = false;
             restartButton.textContent = 'Guardar y Registrar Nuevo Caso';
         });
+
+        // --- INICIAR LA APLICACIÓN ---
+        document.addEventListener('DOMContentLoaded', initializeApp);
 
     </script>
 </body>
